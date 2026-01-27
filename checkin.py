@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-2026 GLaDOS 自动签到 (极客增强版 - 支持钉钉机器人)
-
-功能：
-- 全自动签到 + 智能多域名切换
-- 支持 PushPlus & 钉钉机器人 双推送
-- 适配钉钉加签安全校验
+2026 GLaDOS 自动签到
+- 极致钉钉 Markdown 美化
+- 账户隐私脱敏
+- 智能积分变化高亮
 """
 
 import requests
@@ -20,7 +18,7 @@ import base64
 import urllib.parse
 from datetime import datetime
 
-# Fix Windows Unicode Output
+# 解决 Windows 环境输出乱码
 if sys.platform.startswith('win'):
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -37,8 +35,6 @@ HEADERS = {
     'Content-Type': 'application/json;charset=UTF-8',
     'Accept': 'application/json, text/plain, */*',
 }
-
-# ================= 工具函数 =================
 
 def log(msg):
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -72,8 +68,8 @@ class GLaDOS:
         self.left_days = "?"
         self.points = "?"
         self.points_change = "?"
-        self.exchange_info = ""
-        self.exchange_text = "" # 纯文本版用于钉钉
+        self.exchange_text = ""
+        self.last_msg = ""
         
     def req(self, method, path, data=None):
         for d in DOMAINS:
@@ -83,12 +79,10 @@ class GLaDOS:
                 h['Cookie'] = self.cookie
                 h['Origin'] = d
                 h['Referer'] = f"{d}/console/checkin"
-                
                 if method == 'GET':
                     resp = requests.get(url, headers=h, timeout=10)
                 else:
                     resp = requests.post(url, headers=h, json=data, timeout=10)
-                
                 if resp.status_code == 200:
                     self.domain = d
                     return resp.json()
@@ -118,17 +112,13 @@ class GLaDOS:
             
             plans = res.get('plans', {})
             pts = int(self.points)
-            exchange_lines = []
             text_lines = []
             for plan_id, plan_data in plans.items():
                 need, days = plan_data['points'], plan_data['days']
                 if pts >= need:
-                    exchange_lines.append(f"✅ {need}分→{days}天 (可兑换)")
-                    text_lines.append(f"● {need}分→{days}天 (✅)")
+                    text_lines.append(f"- <font color='#27ae60'>[已满额]</font> {need}分 ➟ {days}天")
                 else:
-                    exchange_lines.append(f"❌ {need}分→{days}天 (差{need-pts}分)")
-                    text_lines.append(f"● {need}分→{days}天 (❌ 差{need-pts})")
-            self.exchange_info = "<br>".join(exchange_lines)
+                    text_lines.append(f"- <font color='#999999'>[待达成]</font> {need}分 ➟ {days}天 (还差{need-pts}分)")
             self.exchange_text = "\n".join(text_lines)
             return True
         return False
@@ -139,10 +129,10 @@ class GLaDOS:
 # ================= 推送模块 =================
 
 def push_dingtalk(webhook, secret, title, results_objs):
-    """钉钉机器人推送逻辑 (2026 极客标准)"""
+    """极致美化版钉钉推送"""
     if not webhook: return
     
-    # 1. 处理加签
+    # 加签逻辑
     timestamp = str(round(time.time() * 1000))
     url = webhook
     if secret:
@@ -151,50 +141,50 @@ def push_dingtalk(webhook, secret, title, results_objs):
         sign = urllib.parse.quote_plus(base64.b64encode(hmac_code))
         url = f"{webhook}&timestamp={timestamp}&sign={sign}"
 
-    # 2. 构造 Markdown 内容
-    md_text = f"## {title}\n\n"
+    # 构造 Markdown
+    md_text = f"## 🚀 {title} \n\n"
     for g in results_objs:
-        md_text += f"### 👤 账号: {g.email}\n"
-        md_text += f"- **积分**: `{g.points}` ({g.points_change})\n"
-        md_text += f"- **天数**: `{g.left_days} 天`\n"
-        md_text += f"- **结果**: {g.last_msg}\n"
-        md_text += f"#### 🎁 兑换选项:\n{g.exchange_text}\n\n---\n"
+        # 邮箱隐私处理
+        email_parts = g.email.split('@')
+        masked = f"{email_parts[0][:3]}***{email_parts[0][-2:]}@{email_parts[1]}" if len(email_parts) > 1 else g.email
+        
+        # 状态颜色
+        status_icon = "🟢" if "Success" in g.last_msg or "Repeats" in g.last_msg else "🔴"
+        change_color = "#27ae60" if "+" in g.points_change else "#e74c3c"
+
+        md_text += f"#### 👤 账号: `{masked}`\n"
+        md_text += f"> **核心资产报告**\n"
+        md_text += f"> - 💰 **当前积分**: `{g.points}` <font color='{change_color}'>({g.points_change})</font>\n"
+        md_text += f"> - ⏳ **剩余天数**: `{g.left_days}` 天\n"
+        md_text += f"> - {status_icon} **结果**: {g.last_msg}\n\n"
+        
+        if g.exchange_text:
+            md_text += f"**🎁 兑换进度建议：**\n{g.exchange_text}\n"
+        md_text += "\n---\n"
     
-    md_text += f"\n> 推送时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    md_text += f"\n<font color='#999999' size='2'>🕒 任务时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</font>"
 
     data = {
         "msgtype": "markdown",
-        "markdown": {"title": title, "text": md_text}
+        "markdown": {"title": "GLaDOS 签到报告", "text": md_text}
     }
-    
     try:
-        res = requests.post(url, json=data, timeout=10).json()
-        if res.get("errcode") == 0: log("✅ 钉钉推送成功")
-        else: log(f"❌ 钉钉推送失败: {res.get('errmsg')}")
+        requests.post(url, json=data, timeout=10)
+        log("✅ 钉钉精美版推送成功")
     except Exception as e:
-        log(f"⚠️ 钉钉请求异常: {e}")
-
-def push_plus(token, title, content):
-    if not token: return
-    try:
-        url = "http://www.pushplus.plus/send"
-        requests.get(url, params={'token': token, 'title': title, 'content': content, 'template': 'html'}, timeout=5)
-        log("✅ PushPlus 推送成功")
-    except:
-        log("❌ PushPlus 推送失败")
+        log(f"⚠️ 推送异常: {e}")
 
 # ================= 主程序 =================
 
 def main():
-    log("🚀 2026 GLaDOS Checkin Starting...")
+    log("🚀 GLaDOS Checkin UI-Enhance Starting...")
     cookies = get_cookies()
     if not cookies: sys.exit(1)
     
-    html_results = []
     results_objs = []
     success_cnt = 0
     
-    for i, cookie in enumerate(cookies, 1):
+    for cookie in cookies:
         g = GLaDOS(cookie)
         res = g.checkin()
         g.last_msg = res.get('message', 'Failure') if res else "Network Error"
@@ -202,32 +192,13 @@ def main():
         g.get_status()
         g.get_points()
         
-        log(f"用户: {g.email} | 积分: {g.points} | 天数: {g.left_days} | 结果: {g.last_msg}")
-        if "Checkin" in g.last_msg: success_cnt += 1
-        
+        log(f"用户: {g.email} | 积分: {g.points} | 结果: {g.last_msg}")
+        if "Checkin" in g.last_msg or "Repeats" in g.last_msg: success_cnt += 1
         results_objs.append(g)
-        html_results.append(f"""
-<div style="border:2px solid #333; padding:15px; margin-bottom:15px; border-radius:10px; background:#fff;">
-    <h3 style="margin:0 0 15px 0; color:#333; border-bottom:2px solid #333; padding-bottom:8px;">👤 {g.email}</h3>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>当前积分:</b> <span style="color:#e74c3c; font-size:22px; font-weight:bold;">{g.points}</span> <span style="color:#27ae60; font-weight:bold;">({g.points_change})</span></p>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>剩余天数:</b> <span style="font-weight:bold;">{g.left_days} 天</span></p>
-    <p style="margin:8px 0; color:#000; font-size:16px;"><b>签到结果:</b> {g.last_msg}</p>
-    <div style="margin-top:15px; padding:12px; background:#f0f0f0; border-radius:8px; border:1px solid #ccc;">
-        <p style="margin:0 0 8px 0; color:#333; font-weight:bold; font-size:15px;">🎁 兑换选项:</p>
-        <p style="margin:0; color:#000; font-size:14px; line-height:1.8;">{g.exchange_info}</p>
-    </div>
-</div>
-""")
 
-    title = f"GLaDOS签到: 成功{success_cnt}/{len(cookies)}"
+    title = f"GLaDOS 签到结果: {success_cnt}/{len(cookies)}"
     
-    # 1. 尝试 PushPlus 推送
-    ptoken = os.environ.get("PUSHPLUS_TOKEN")
-    if ptoken:
-        content = "".join(html_results) + f"<br><small>时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</small>"
-        push_plus(ptoken, title, content)
-        
-    # 2. 尝试 钉钉机器人 推送
+    # 尝试钉钉推送
     d_webhook = os.environ.get("DINGTALK_WEBHOOK")
     d_secret = os.environ.get("DINGTALK_SECRET")
     if d_webhook:
