@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-GLaDOS 乔布斯禅意情报版 (2026 稳定版)
-- 禅意进度条：一眼看穿积分差距
-- 高可用天气：杭州经纬度精准锁定
-- 必应美学：每日一张精选摄影，洗涤心灵
+GLaDOS 乔布斯禅意情报版 (2026 修复版)
+- 修复 log 函数未定义错误
+- 集成必应每日美图 (国内高可用)
+- 禅意进度条 + 断粮日期精准预测
 """
 
 import requests
@@ -18,7 +18,17 @@ import base64
 import urllib.parse
 from datetime import datetime, timedelta, timezone
 
-# 适配 Windows 环境
+# 1. 基础工具函数 (置于顶部确保全局可用)
+def get_beijing_time():
+    """获取北京时间"""
+    return datetime.now(timezone(timedelta(hours=8)))
+
+def log(msg):
+    """标准日志输出"""
+    ts = get_beijing_time().strftime("%H:%M:%S")
+    print(f"[{ts}] {msg}")
+
+# 适配 Windows 环境编码
 if sys.platform.startswith('win'):
     sys.stdout.reconfigure(encoding='utf-8')
 
@@ -29,39 +39,36 @@ HEADERS = {
     'Content-Type': 'application/json;charset=UTF-8',
 }
 
-def get_beijing_time():
-    return datetime.now(timezone(timedelta(hours=8)))
-
 def get_zen_bar(current, target):
-    """渲染乔布斯式极简进度条"""
+    """渲染极简进度条"""
     percent = min(current / target, 1.0)
     filled = int(percent * 8)
     bar = "█" * filled + "░" * (8 - filled)
     return f"`{bar}` {int(percent*100)}%"
 
-# ================= 信息中枢 (高可用增强) =================
+# ================= 信息中枢模块 =================
 
 def get_geek_daily():
     report = "\n---\n#### 📰 极客早报\n"
     
-    # 1. 必应每日美图 (乔布斯审美的视觉核心)
+    # 1. 必应每日美图 (替代失效的 Unsplash)
     try:
-        bing_res = requests.get("https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1", timeout=5).json()
+        bing_res = requests.get("https://cn.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1", timeout=10).json()
         img_url = "https://cn.bing.com" + bing_res['images'][0]['url']
         report += f"![Daily Photo]({img_url})\n\n"
-    except: pass
+    except Exception as e:
+        log(f"必应图片获取失败: {e}")
 
-    # 2. 一言 (灵感来源)
+    # 2. 一言 (灵感)
     try:
         res = requests.get("https://v1.hitokoto.cn/?encode=json", timeout=5).json()
         report += f"> “{res['hitokoto']}” —— *{res['from']}*\n\n"
     except:
         report += "> “Stay Hungry, Stay Foolish.”\n\n"
     
-    # 3. 杭州天气 (Open-Meteo 高可用版)
+    # 3. 杭州天气 (Open-Meteo)
     weather_str = "查询失败"
     try:
-        # 杭州经纬度：30.24, 120.20
         w_url = "https://api.open-meteo.com/v1/forecast?latitude=30.24&longitude=120.20&current_weather=true&timezone=Asia%2FShanghai"
         w_res = requests.get(w_url, timeout=5).json()
         if 'current_weather' in w_res:
@@ -74,7 +81,7 @@ def get_geek_daily():
     report += f"🌡️ **今日天气预报**: `{weather_str}`\n"
     return report
 
-# ================= 核心逻辑 =================
+# ================= 核心逻辑模块 =================
 
 class GLaDOS:
     def __init__(self, cookie):
@@ -110,7 +117,7 @@ class GLaDOS:
                 change = str(history[0].get('change', '0')).split('.')[0]
                 self.points_change = f"+{change}" if not change.startswith('-') else change
             
-            # 乔布斯式进度条建议
+            # 进度建议逻辑
             checkpoints = [(100, 10), (200, 30), (500, 100)]
             advice_lines = ["**🎁 资产增值路径：**"]
             for target_pts, target_days in checkpoints:
@@ -130,7 +137,10 @@ class GLaDOS:
 # ================= 推送引擎 =================
 
 def push_dingtalk(webhook, secret, results_objs):
-    if not webhook: return
+    if not webhook: 
+        log("⚠️ 未设置 DINGTALK_WEBHOOK，跳过推送")
+        return
+    
     timestamp = str(round(time.time() * 1000))
     url = webhook
     if secret:
@@ -142,20 +152,19 @@ def push_dingtalk(webhook, secret, results_objs):
     bj_now = get_beijing_time()
     greeting = "早上好" if 5 <= bj_now.hour < 12 else "下午好" if 12 <= bj_now.hour < 18 else "晚上好"
     
-    md_text = f"##  {greeting}。这是您的数字资产简报 \n\n"
+    md_text = f"##  {greeting}。这是您的资产简报 \n\n"
     for g in results_objs:
         email_parts = g.email.split('@')
         masked = f"{email_parts[0][:3]}***{email_parts[0][-2:]}@{email_parts[1]}"
         expire_date = (bj_now + timedelta(days=g.left_days)).strftime('%Y-%m-%d')
         
-        warning_label = " <font color='#e74c3c'>⚠️ 库存紧张</font>" if g.left_days < 7 else " <font color='#27ae60'>✅ 储备充足</font>"
+        warning = " <font color='#e74c3c'>⚠️ 库存紧张</font>" if g.left_days < 7 else " <font color='#27ae60'>✅ 储备充足</font>"
         status_icon = "🟢" if "Success" in g.last_msg or "Repeats" in g.last_msg else "🔴"
-        change_color = "#27ae60" if "+" in g.points_change else "#e74c3c"
-
+        
         md_text += f"#### 👤 账号: `{masked}`\n"
         md_text += f"> **核心资产报告**\n"
-        md_text += f"> - 💰 **当前积分**: `{g.points}` <font color='{change_color}'>({g.points_change})</font>\n"
-        md_text += f"> - ⏳ **可用天数**: `{g.left_days}` 天 {warning_label}\n"
+        md_text += f"> - 💰 **当前积分**: `{g.points}` ({g.points_change})\n"
+        md_text += f"> - ⏳ **可用天数**: `{g.left_days}` 天 {warning}\n"
         md_text += f"> - 📅 **断粮日期**: `{expire_date}`\n"
         md_text += f"> - {status_icon} **状态**: {g.last_msg}\n\n"
         
@@ -163,25 +172,33 @@ def push_dingtalk(webhook, secret, results_objs):
             md_text += f"{g.exchange_advice}\n\n"
 
     md_text += get_geek_daily()
-    md_text += f"\n---\n<font color='#999999' size='2'>🕒 信息中枢更新于: {bj_now.strftime('%H:%M:%S')}</font>"
+    md_text += f"\n---\n<font color='#999999' size='2'>🕒 更新于: {bj_now.strftime('%H:%M:%S')}</font>"
 
     data = {"msgtype": "markdown", "markdown": {"title": "GLaDOS 禅意简报", "text": md_text}}
     try:
         requests.post(url, json=data, timeout=10)
-    except: pass
+        log("✅ 钉钉推送完成")
+    except Exception as e:
+        log(f"❌ 推送失败: {e}")
 
 def main():
     log("🚀 GLaDOS 乔布斯禅意版启动...")
     raw_cookie = os.environ.get("GLADOS_COOKIE", "")
-    if not raw_cookie: return
+    if not raw_cookie:
+        log("❌ 未配置 GLADOS_COOKIE 环境变量")
+        return
+        
     cookies = [c.strip() for c in raw_cookie.split('\n') if c.strip()]
     results_objs = []
+    
     for cookie in cookies:
         g = GLaDOS(cookie)
         res = g.checkin()
         g.last_msg = res.get('message', 'Net Error') if res else "Net Error"
         g.fetch_data()
         results_objs.append(g)
+        log(f"账号 {g.email} 处理完成")
+        
     push_dingtalk(os.environ.get("DINGTALK_WEBHOOK"), os.environ.get("DINGTALK_SECRET"), results_objs)
 
 if __name__ == '__main__':
