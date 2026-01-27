@@ -38,18 +38,37 @@ def log(msg):
 # ================= 信息中枢模块 =================
 
 def get_geek_daily():
+    """抓取一言、杭州天气（高可用版）和热搜"""
     report = "\n---\n#### 📰 极客早报\n"
-    # 1. 一言
+    
+    # 1. 一言 (Hitokoto)
     try:
         res = requests.get("https://v1.hitokoto.cn/?encode=json", timeout=5).json()
         report += f"> “{res['hitokoto']}” —— *{res['from']}*\n\n"
     except:
         report += "> “代码即诗，逻辑即美。”\n\n"
-    # 2. 天气
+    
+    # 2. 杭州天气 (Open-Meteo 备选方案)
+    weather_str = "查询失败"
     try:
-        weather = requests.get("https://wttr.in/?format=3&lang=zh-cn", timeout=5).text
-        report += f"🌡️ **实时天气**: `{weather.strip()}`\n"
-    except: pass
+        # 杭州经纬度：30.24, 120.20
+        weather_url = "https://api.open-meteo.com/v1/forecast?latitude=30.24&longitude=120.20&current_weather=true&timezone=Asia%2FShanghai"
+        w_res = requests.get(weather_url, timeout=5).json()
+        if 'current_weather' in w_res:
+            curr = w_res['current_weather']
+            temp = curr['temperature']
+            # 简单的天气代码转换
+            code = curr['weathercode']
+            emoji = "🌤️" if code < 3 else "☁️" if code < 50 else "🌧️"
+            weather_str = f"杭州 {emoji} {temp}°C"
+    except:
+        # 如果备选也挂了，尝试最后一次 wttr.in 简化版请求
+        try:
+            weather_str = requests.get("https://wttr.in/Hangzhou?format=1&lang=zh-cn", timeout=5).text.strip()
+        except: pass
+
+    report += f"🌡️ **今日环境**: `{weather_str}`\n"
+        
     return report
 
 # ================= 核心逻辑模块 =================
@@ -139,7 +158,7 @@ def push_dingtalk(webhook, secret, title, results_objs):
 
     md_text += get_geek_daily()
     bj_now = get_beijing_time().strftime('%Y-%m-%d %H:%M:%S')
-    md_text += f"\n---\n<font color='#999999' size='2'>🕒 任务完成: {bj_now}</font>"
+    md_text += f"\n---\n<font color='#999999' size='2'>🕒 信息中枢更新于: {bj_now}</font>"
 
     data = {"msgtype": "markdown", "markdown": {"title": "GLaDOS 极客日报", "text": md_text}}
     try:
