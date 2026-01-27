@@ -161,13 +161,13 @@ def push_dingtalk(webhook, secret, title, results_objs):
         if g.exchange_text:
             md_text += f"**🎁 兑换进度建议：**\n{g.exchange_text}\n"
         md_text += "\n---\n"
+        beijing_time = datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')
+        md_text += f"\n<font color='#999999' size='2'>🕒 任务时间: {beijing_time}</font>"
     
-    md_text += f"\n<font color='#999999' size='2'>🕒 任务时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</font>"
-
-    data = {
-        "msgtype": "markdown",
-        "markdown": {"title": "GLaDOS 签到报告", "text": md_text}
-    }
+        data = {
+            "msgtype": "markdown",
+            "markdown": {"title": "GLaDOS 签到报告", "text": md_text}
+        }
     try:
         requests.post(url, json=data, timeout=10)
         log("✅ 钉钉精美版推送成功")
