@@ -16,7 +16,8 @@ import hmac
 import hashlib
 import base64
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
 
 # 解决 Windows 环境输出乱码
 if sys.platform.startswith('win'):
