@@ -67,7 +67,7 @@ def get_geek_daily():
             weather_str = requests.get("https://wttr.in/Hangzhou?format=1&lang=zh-cn", timeout=5).text.strip()
         except: pass
 
-    report += f"🌡️ **今日环境**: `{weather_str}`\n"
+    report += f"🌡️ **今日天气预报**: `{weather_str}`\n"
         
     return report
 
