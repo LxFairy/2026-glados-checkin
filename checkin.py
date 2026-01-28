@@ -104,13 +104,18 @@ class GLaDOS:
                 change = str(history[0].get('change', '0')).split('.')[0]
                 self.points_change = f"+{change}" if not change.startswith('-') else change
             
+             # 进度建议逻辑
             checkpoints = [(100, 10), (200, 30), (500, 100)]
             advice_lines = ["**🎁 资产增值路径：**"]
             for target_pts, target_days in checkpoints:
                 bar_str = get_zen_bar(self.points, target_pts)
-                status_text = "<font color='#27ae60'>[就绪]</font>" if self.points >= target_pts else "<font color='#999999'>[积攒]</font>"
-                gap = "可兑换" if self.points >= target_pts else f"缺 {target_pts - self.points}pt"
-                advice_lines.append(f"> {bar_str} {status_text} **{target_days:>3}天** ({gap})")
+                if self.points >= target_pts:
+                    status_text = "<font color='#27ae60'>[就绪]</font>"
+                    gap = "可兑换"
+                else:
+                    status_text = "<font color='#999999'>[积攒]</font>"
+                    gap = f"还差 {target_pts - self.points}"
+                advice_lines.append(f"> {bar_str} {status_text} **{target_days}天** ({gap})")
             self.exchange_advice = "\n".join(advice_lines)
 
     def checkin(self):
