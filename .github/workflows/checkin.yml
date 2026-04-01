@@ -2,22 +2,31 @@ name: GLaDOS 2026 Checkin
 
 on:
   schedule:
-    # 北京时间 9:30 (UTC 1:30)
-    - cron: '30 1 * * *'
-    # 北京时间 21:30 (UTC 13:30)
-    - cron: '30 13 * * *'
+    # 北京时间 9:45 (UTC 1:45)
+    - cron: '45 1 * * *'
+    # 北京时间 21:30 (UTC 13:45)
+    - cron: '45 13 * * *'
   workflow_dispatch:  # 允许手动触发
+  repository_dispatch: # 允许 cron-job.org 外部触发
+    types: [glados_checkin]
   push:
-    branches: [main]  # 推送时也触发，保持活跃
+    branches: [main]  # 推送时也触发
+
+# 赋予 Action 写入权限，否则无法自动提交代码保持活跃
+permissions:
+  contents: write
 
 jobs:
   checkin:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15 # 增加一点 buffer
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # 取消默认的只读，确保可以 push
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -26,7 +35,13 @@ jobs:
           cache: 'pip'
 
       - name: Install Dependencies
-        run: pip install -r requirements.txt
+        run: |
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          else
+            echo "requirements.txt not found, installing basic requests..."
+            pip install requests
+          fi
 
       - name: Run Checkin
         run: python checkin.py
@@ -37,6 +52,7 @@ jobs:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           SERVER_CHAN_SENDKEY: ${{ secrets.SERVER_CHAN_SENDKEY }}
+
       - name: Retry on Failure
         if: failure()
         run: |
@@ -50,3 +66,14 @@ jobs:
           DINGTALK_WEBHOOK: ${{ secrets.DINGTALK_WEBHOOK }}
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           SERVER_CHAN_SENDKEY: ${{ secrets.SERVER_CHAN_SENDKEY }}
+
+      # --- 核心新增：Keep Alive 逻辑 ---
+      - name: Keep Alive (Auto-commit)
+        if: always() # 无论签到成功还是失败，都执行提交以保持活跃
+        run: |
+          git config --local user.email "932817872@qq.com"
+          git config --local user.name "LxFairy"
+          echo "Last run: $(date -u) (UTC)" > keep_alive.txt
+          git add keep_alive.txt
+          # 只有在有变化时才 commit，防止没有变动时报错
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto keep-alive [skip ci]" && git push)
