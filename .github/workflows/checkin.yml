@@ -1,31 +1,37 @@
 name: GLaDOS 2026 Checkin
 
 on:
-  schedule:
-    # 北京时间 9:45 (UTC 1:45)
-    - cron: '45 1 * * *'
-    # 北京时间 21:30 (UTC 13:45)
-    - cron: '45 13 * * *'
-  workflow_dispatch:  # 允许手动触发
-  repository_dispatch: # 允许 cron-job.org 外部触发
+  # 1. 外部触发：对接 cron-job.org
+  # 触发 URL 为: https://api.github.com/repos/你的用户名/仓库名/dispatches
+  # Payload 需包含: {"event_type": "glados_checkin"}
+  repository_dispatch:
     types: [glados_checkin]
-  push:
-    branches: [main]  # 推送时也触发
 
-# 赋予 Action 写入权限，否则无法自动提交代码保持活跃
+  # 2. 手动触发：允许在 GitHub Actions 页面手动点击 "Run workflow"
+  workflow_dispatch:
+
+  # 3. 定时触发：GitHub 自带 Cron (目前已注释，如需启用请取消下方 # 符号)
+  # schedule:
+  #   - cron: '45 1 * * *'  # 北京时间 9:45
+  #   - cron: '45 13 * * *' # 北京时间 21:45
+
+  # 4. 推送触发：修改代码时触发 (目前已注释，防止 push 递归)
+  # push:
+  #   branches: [main]
+
 permissions:
   contents: write
 
 jobs:
   checkin:
     runs-on: ubuntu-latest
-    timeout-minutes: 15 # 增加一点 buffer
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # 取消默认的只读，确保可以 push
+          # 必须使用具有 write 权限的 Token 以便后续 push keep_alive
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
@@ -67,13 +73,12 @@ jobs:
           DINGTALK_SECRET: ${{ secrets.DINGTALK_SECRET }}
           SERVER_CHAN_SENDKEY: ${{ secrets.SERVER_CHAN_SENDKEY }}
 
-      # --- 核心新增：Keep Alive 逻辑 ---
       - name: Keep Alive (Auto-commit)
-        if: always() # 无论签到成功还是失败，都执行提交以保持活跃
+        if: always()
         run: |
           git config --local user.email "932817872@qq.com"
           git config --local user.name "LxFairy"
           echo "Last run: $(date -u) (UTC)" > keep_alive.txt
           git add keep_alive.txt
-          # 只有在有变化时才 commit，防止没有变动时报错
+          # 只有在 keep_alive.txt 确实有变动时才 commit，防止 empty commit 报错
           git diff --quiet && git diff --staged --quiet || (git commit -m "chore: auto keep-alive [skip ci]" && git push)
